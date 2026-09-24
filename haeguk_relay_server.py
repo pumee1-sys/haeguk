@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HAEGUK lobby + WebSocket relay server v469."""
+"""HAEGUK lobby + WebSocket relay server v472."""
 import asyncio, json, os, secrets
 from dataclasses import dataclass, field
 import websockets
@@ -72,6 +72,7 @@ async def broadcast_room(rid,payload,skip=None):
 
 async def handler(ws):
     clients.add(ws)
+    print(f"[connect] clients={len(clients)}", flush=True)
     try:
         await send(ws,{"type":"room_list","rooms":public_rooms(),"client":"server","room":""})
         async for raw in ws:
@@ -92,11 +93,14 @@ async def handler(ws):
                 rid=client_room.get(ws,'')
                 if rid: await broadcast_room(rid,msg,skip=ws)
             elif typ=='ping': await send(ws,{"type":"pong","room":client_room.get(ws,''),"client":"server"})
+    except (websockets.exceptions.ConnectionClosed, ConnectionResetError):
+        pass
     finally:
         await leave_room(ws); clients.discard(ws); client_id.pop(ws,None)
+        print(f"[disconnect] clients={len(clients)}", flush=True)
 
 async def main():
-    print(f'HAEGUK v469 lobby listening on {HOST}:{PORT}')
-    async with websockets.serve(handler,HOST,PORT,max_size=8*1024*1024,ping_interval=20,ping_timeout=20):
+    print(f'HAEGUK v472 lobby listening on {HOST}:{PORT}', flush=True)
+    async with websockets.serve(handler,HOST,PORT,max_size=8*1024*1024,ping_interval=None):
         await asyncio.Future()
 if __name__=='__main__': asyncio.run(main())
