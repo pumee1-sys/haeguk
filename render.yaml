@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: haeguk-online
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python haeguk_relay_server.py
