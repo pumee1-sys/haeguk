@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: haeguk-online
+    name: haeguk
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
