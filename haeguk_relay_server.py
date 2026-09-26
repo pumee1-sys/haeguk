@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HAEGUK WebSocket lobby/relay server v479.
+"""HAEGUK WebSocket lobby/relay server v480.
 Explicitly relays state from BOTH P1 and P2 and turn_handoff messages.
 """
 import asyncio, json, os, secrets, string
@@ -49,7 +49,7 @@ async def handler(ws):
                 await remove_ws(ws)
                 rid=''.join(secrets.choice(string.ascii_uppercase+string.digits) for _ in range(6))
                 while rid in rooms: rid=''.join(secrets.choice(string.ascii_uppercase+string.digits) for _ in range(6))
-                r={'id':rid,'name':str(m.get('name','해국 대국방'))[:32],'map':str(m.get('map','기본맵5.map')),'password':str(m.get('password',''))[:32],'started':False,'players':[{'ws':ws,'client':client,'name':str(m.get('player_name','Player'))[:16],'ready':False}]}
+                r={'id':rid,'name':str(m.get('name','해국 대국방'))[:32],'map':str(m.get('map','기본맵5.map')),'password':str(m.get('password',''))[:32],'started':False,'current_turn':0,'turn_seq':0,'round_no':1,'players':[{'ws':ws,'client':client,'name':str(m.get('player_name','Player'))[:16],'ready':False}]}
                 rooms[rid]=r; client_room[ws]=rid
                 await send(ws,{'type':'joined','room':rid,'name':r['name'],'map':r['map'],'locked':bool(r['password']),'members':1,'players':players_public(r),'your_role':0})
                 await room_update(r); await broadcast_lists(); continue
@@ -68,10 +68,21 @@ async def handler(ws):
                 r['players'][idx]['ready']=bool(m.get('ready',False)); await room_update(r); continue
             if typ=='start_game':
                 if idx!=0 or len(r['players'])!=2 or not all(p['ready'] for p in r['players']): continue
-                r['started']=True; await broadcast_room(r,{'type':'game_start','room':rid,'map':r['map']}); await broadcast_lists(); continue
-            if typ in ('state','turn_handoff'):
-                # Critical v479 rule: P1 and P2 are symmetric state senders.
-                # Ignore client-supplied role and stamp the authenticated room slot.
+                r['started']=True; r['current_turn']=0; r['turn_seq']=0; r['round_no']=1; await broadcast_room(r,{'type':'game_start','room':rid,'map':r['map'],'current_player':0}); await broadcast_lists(); continue
+            if typ=='turn_end':
+                # v480: the server is the single authority for whose turn it is.
+                # Only the player whose slot equals current_turn may end the turn.
+                if idx != r.get('current_turn',0):
+                    await send(ws,{'type':'turn_rejected','room':rid,'current_player':r.get('current_turn',0),'message':'턴 종료 거부: 현재 서버 턴과 플레이어가 일치하지 않습니다.'}); continue
+                r['current_turn']=1-r['current_turn']
+                r['turn_seq']=int(r.get('turn_seq',0))+1
+                if r['current_turn']==0: r['round_no']=int(r.get('round_no',1))+1
+                out={'type':'turn_set','room':rid,'client':'server','ended_by':idx,'current_player':r['current_turn'],'seq':r['turn_seq'],'round_no':r['round_no'],'state':m.get('state',{})}
+                # Both clients receive the same authoritative turn result.
+                await broadcast_room(r,out); continue
+            if typ=='state':
+                # Gameplay state may only be published by the server-authorized active player.
+                if idx != r.get('current_turn',0): continue
                 out=dict(m); out['room']=rid; out['client']=r['players'][idx]['client']; out['role']=idx
                 await broadcast_room(r,out,skip=ws); continue
             if typ=='leave_room':
@@ -79,6 +90,6 @@ async def handler(ws):
     finally:
         await remove_ws(ws); await broadcast_lists()
 async def main():
-    print(f'HAEGUK relay v479 listening on {HOST}:{PORT}')
+    print(f'HAEGUK relay v480 listening on {HOST}:{PORT}')
     async with websockets.serve(handler,HOST,PORT,max_size=16*1024*1024,ping_interval=20,ping_timeout=20): await asyncio.Future()
 if __name__=='__main__': asyncio.run(main())
